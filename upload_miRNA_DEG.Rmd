@@ -1,0 +1,619 @@
+---
+title: "Differential plasma miRNA profiles during the peri-implantation period in patients with different reproductive outcomes"
+author:
+  - Zeng, Hong
+documentclass: ctexart
+geometry: "left=0.5cm,right=0.5cm,top=1.0cm,bottom=1.0cm"
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 5
+---
+# Color set
+```{r}
+library(RColorBrewer)
+colorset <- brewer.pal(8, "Accent")
+# barplot(rep(1,8),col = brewer.pal(8, "Accent"))
+```
+
+
+# Including all Samples
+## load data and data clean
+```{r data preparation}
+load(file = "upload_all_samples.Rda")#load data
+keep<-rowSums(expr_tpm>5)>=5#filter criteria
+expr_count_filter<-expr_count[keep, ]#filtered count data
+expr_tpm_filter<-expr_tpm[keep, ]#filtered TPM data
+rm(keep)
+```
+
+## PCA analysis
+```{r}
+pca_all<-prcomp(t(expr_tpm_filter),scale=T)#PCA
+df_pca_all<-data.frame(pca_all$x)#Extraction of principal components
+library(tidyverse)
+df_pca_all <- df_pca_all %>% rownames_to_column(var = "sample_id") %>% left_join(target[,c("sample_id", "group", "ETday")], by="sample_id") %>% column_to_rownames(var = "sample_id")#Add grouping information
+head(df_pca_all,3) 
+```
+
+## PCA 3D plot
+```{r PCA 3D plot}
+library(scatterplot3d)
+mycolors_pca <- ifelse(df_pca_all$group=="CP", colorset[1], ifelse(df_pca_all$group=="BP", colorset[2], colorset[3]))
+
+pchs <- ifelse(df_pca_all$ETday=="0", 15, ifelse(df_pca_all$ETday=="11", 16, 17))
+
+scatterplot3d(df_pca_all[,1:3],
+              color = mycolors_pca,
+              pch=pchs,
+              main= "",
+              grid=T, 
+              box=FALSE, 
+              type = "h",
+              cex.symbols=0.5)
+# Add legends
+legend("top", legend = c("NP", "BPL", "CP"),
+      col =  colorset[c(3,2,1)],  pch =c(NA,NA,NA), inset = 0.06, horiz=T, xpd = T, bty = "n",lwd = 1, lty = c(1,1,1))
+legend("top", legend = c("ET0", "ET11", "ET14"),
+      col =  c("black", "black", "black"),  pch =c(15,16,17), horiz=T, xpd = T, bty = "n")
+```
+
+
+# Including Samples at ET0
+## Load data
+```{r data and filter, message=FALSE}
+load("upload_samples_ET0.Rda")#load data
+keep <- rowSums(expr_tpm_ET0 > 5) >= 5#filter criteria
+expr_count_ET0_filter <- expr_count_ET0[keep, ]
+expr_tpm_ET0_filter <- expr_tpm_ET0[keep, ]
+rm(keep)
+```
+
+## PCA analysis
+```{r PCA analysis}
+pca_ET0<-prcomp(t(expr_tpm_ET0_filter),scale=T)#PCA
+df_pca_ET0<-data.frame(pca_ET0$x)#Extraction of principal components
+library(tidyverse)
+df_pca_ET0 <- df_pca_ET0 %>% rownames_to_column(var = "sample_id") %>% left_join(target_ET0[,c("sample_id", "group")], by="sample_id") %>% column_to_rownames(var = "sample_id")
+head(df_pca_ET0,3)
+```
+
+## PCA 3D plot
+```{r 3D PCA plot}
+library(scatterplot3d)
+mycolors_ET0 <- ifelse(df_pca_ET0$group=="CP", colorset[1], ifelse(df_pca_ET0$group=="BP", colorset[2], colorset[3]))
+scatterplot3d(df_pca_ET0[,1:3],
+              color = mycolors_ET0,
+              pch=15,
+              main= "",
+              grid=T, 
+              box=FALSE, 
+              type = "h")
+legend("top", legend = c("NP", "BPL", "CP"),
+      col =  colorset[c(3,2,1)],  pch =15, horiz=T, xpd = T, bty = "n",lwd = 1, lty = c(1,1,1))
+```
+
+
+## DEmiRs analysis
+```{r DESeq2 analysis, echo=FALSE, message=FALSE, warning=FALSE}
+library(DESeq2)
+dds_ET0_adjust <- DESeqDataSetFromMatrix(
+  countData = expr_count_ET0_filter,
+  colData = target_ET0,
+  design = ~ embryo_no+embryo_type+group)#adjust for the number of embryos and the type of embryos
+dds_ET0_adjust <- DESeq(dds_ET0_adjust, parallel = T) #standardization and DEG analysis
+resultsNames(dds_ET0_adjust)
+```
+
+```{r DEmiR BPL vs CP at ET0}
+library(tidyverse)
+res_BPvsCP_ET0 <- results(dds_ET0_adjust, contrast = c("group", "BP", "CP" ),cooksCutoff = F, independentFiltering = F) #BPL vs CP
+
+DEG_BPvsCP_ET0 <- as.data.frame(res_BPvsCP_ET0) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(pvalue < 0.05 & abs(log2FoldChange) > 1, ifelse(log2FoldChange < 0,"DOWN", "UP"), "NS"))
+# write.csv(DEG_BPvsCP_ET0, file = "Stable_DEG_ET0_BPLvsCP.csv", row.names = F)
+DEG_sig_BPvsCP_ET0 <- as.data.frame(res_BPvsCP_ET0) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  dplyr::filter(abs(log2FoldChange) > 1, pvalue < 0.05) %>%
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(log2FoldChange < 0, "DOWN", "UP"))
+```
+
+```{r DEmiR BPL vs NP at ET0}
+res_BPvsNP_ET0 <- results(dds_ET0_adjust, contrast = c("group", "BP", "NP" ),cooksCutoff = F, independentFiltering = F) #BPL vs NP
+
+DEG_BPvsNP_ET0 <- as.data.frame(res_BPvsNP_ET0) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(pvalue < 0.05 & abs(log2FoldChange) > 1, ifelse(log2FoldChange < 0,"DOWN", "UP"), "NS"))
+# write.csv(DEG_BPvsNP_ET0, file = "Stable_DEG_ET0_BPLvsNP.csv", row.names = F)
+
+DEG_sig_BPvsNP_ET0 <- as.data.frame(res_BPvsNP_ET0) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  dplyr::filter(abs(log2FoldChange) > 1, pvalue < 0.05) %>%
+  arrange(pvalue) %>% 
+  mutate(Regulation = ifelse(log2FoldChange < 0, "DOWN", "UP"))
+```
+
+```{r intersection of two comparisions}
+BPL_miRs_ET0 <- intersect(DEG_sig_BPvsCP_ET0$miRNA_id, DEG_sig_BPvsNP_ET0$miRNA_id)
+BPL_miRs_ET0
+# write.csv(BPL_miRs_ET0, file = "BPL_miRs_ET0.csv", row.names = F)
+```
+
+```{r DEmiR NP vs CP at ET0}
+res_NPvsCP_adjust <- results(dds_ET0_adjust, contrast = c("group", "NP", "CP" ),cooksCutoff = F, independentFiltering = F) #提取结果
+DEG_NPvsCP_ET0 <- as.data.frame(res_NPvsCP_adjust) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(pvalue < 0.05 & abs(log2FoldChange) > 1, ifelse(log2FoldChange < 0,"DOWN", "UP"), "NS"))
+# write.csv(DEG_NPvsCP_ET0, file = "Stable_DEG_ET0_NPvsCP.csv", row.names = F)
+
+DEG_sig_NPvsCP_ET0 <- as.data.frame(res_NPvsCP_adjust) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  dplyr::filter(abs(log2FoldChange) > 1, pvalue < 0.05) %>% 
+  arrange(pvalue) %>% 
+  mutate(Regulation = ifelse(log2FoldChange < 0, "DOWN", "UP")) 
+```
+
+ 
+# Including Samples at ET11
+## load data
+```{r data and filter}
+load(file = "upload_samples_ET11.Rda")# loading data
+keep <- rowSums(expr_tpm_ET11 > 5) >= 5#filter
+expr_count_ET11_filter <- expr_count_ET11[keep, ]
+expr_tpm_ET11_filter <- expr_tpm_ET11[keep, ]
+rm(keep)
+```
+
+## PCA analysis
+```{r PCA analysis}
+pca_ET11<-prcomp(t(expr_tpm_ET11_filter),scale=T)
+df_pca_ET11<-data.frame(pca_ET11$x)
+library(tidyverse)
+df_pca_ET11 <- df_pca_ET11 %>% rownames_to_column(var = "sample_id") %>% left_join(target_ET11[,c("sample_id", "group")], by="sample_id") %>% column_to_rownames(var = "sample_id")
+head(df_pca_ET11,3)
+```
+
+```{r 3D PCA plot}
+library(scatterplot3d)
+mycolors_ET11 <- ifelse(df_pca_ET11$group=="CP", colorset[1], ifelse(df_pca_ET11$group=="BP", colorset[2], colorset[3]))
+scatterplot3d(df_pca_ET11[,1:3],
+              color = mycolors_ET11,
+              pch=16,
+              main= "",
+              grid=T, 
+              box=FALSE, 
+              type = "h")
+legend("top", legend = c("NP", "BPL", "CP"),
+      col =  colorset[c(3,2,1)],  pch =16, horiz=T, xpd = T, bty = "n",lwd = 1, lty = c(1,1,1))
+```
+
+## DEmiRs analysis
+```{r DESeq2 analysis, echo=FALSE, message=FALSE, warning=FALSE}
+library(DESeq2)
+identical(colnames(expr_count_ET11_filter), target_ET11$sample_id)
+dds_ET11_adjust <- DESeqDataSetFromMatrix(countData = expr_count_ET11_filter,
+                               colData = target_ET11,
+                               design = ~ embryo_no+embryo_type+group)#adjust for the number of embryos and the type of embryos
+dds_ET11_adjust <- DESeq(dds_ET11_adjust, parallel = T) #standardization and DEG analysis
+resultsNames(dds_ET11_adjust)
+```
+
+```{r DEmiR BPL vs CP at ET11}
+library(tidyverse)
+res_BPvsCP_ET11 <- results(dds_ET11_adjust, contrast = c("group", "BP", "CP" ),cooksCutoff = F, independentFiltering = F) #BPL vs CP
+
+DEG_BPvsCP_ET11 <- as.data.frame(res_BPvsCP_ET11) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(pvalue < 0.05 & abs(log2FoldChange) > 1, ifelse(log2FoldChange < 0,"DOWN", "UP"), "NS"))
+# write.csv(DEG_BPvsCP_ET11, file = "Stable_DEG_ET11_BPLvsCP.csv", row.names = F)
+DEG_sig_BPvsCP_ET11 <- as.data.frame(res_BPvsCP_ET11) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  dplyr::filter(abs(log2FoldChange) > 1, pvalue < 0.05) %>%
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(log2FoldChange < 0, "DOWN", "UP"))
+```
+
+```{r DEmiR BPL vs NP at ET11}
+res_BPvsNP_ET11 <- results(dds_ET11_adjust, contrast = c("group", "BP", "NP" ),cooksCutoff = F, independentFiltering = F)#BPL vs NP
+DEG_BPvsNP_ET11 <- as.data.frame(res_BPvsNP_ET11) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(pvalue < 0.05 & abs(log2FoldChange) > 1, ifelse(log2FoldChange < 0,"DOWN", "UP"), "NS"))
+# write.csv(DEG_BPvsNP_ET11, file = "Stable_DEG_ET11_BPLvsNP.csv", row.names = F)
+DEG_sig_BPvsNP_ET11 <- as.data.frame(res_BPvsNP_ET11) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  dplyr::filter(abs(log2FoldChange) > 1, pvalue < 0.05) %>%
+  arrange(pvalue) %>% 
+  mutate(Regulation = ifelse(log2FoldChange < 0, "DOWN", "UP"))
+```
+
+```{r intersection of two comparisons}
+BPL_miRs_ET11 <- intersect(DEG_sig_BPvsCP_ET11$miRNA_id, DEG_sig_BPvsNP_ET11$miRNA_id)
+BPL_miRs_ET11
+# write.csv(BPL_miRs_ET11, "BPL_miRs_ET11.csv", row.names = F)
+```
+
+```{r DEmiR NP vs CP at ET11}
+res_NPvsCP_ET11 <- results(dds_ET11_adjust, contrast = c("group", "NP", "CP" ),cooksCutoff = F, independentFiltering = F)#NP vs CP
+DEG_NPvsCP_ET11 <- as.data.frame(res_NPvsCP_ET11) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(pvalue < 0.05 & abs(log2FoldChange) > 1, ifelse(log2FoldChange < 0,"DOWN", "UP"), "NS"))
+# write.csv(DEG_NPvsCP_ET11, file = "Stable_DEG_ET11_NPvsCP.csv", row.names = F)
+DEG_sig_NPvsCP_ET11 <- as.data.frame(res_NPvsCP_ET11) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  dplyr::filter(abs(log2FoldChange) > 1, pvalue < 0.05) %>%
+  arrange(pvalue) %>% 
+  mutate(Regulation = ifelse(log2FoldChange < 0, "DOWN", "UP"))
+```
+
+# Including Samples at ET14
+## load data
+```{r data and filter}
+load(file = "upload_samples_ET14.Rda")
+keep <- rowSums(expr_tpm_ET14>5)>=5
+expr_count_ET14_filter <- expr_count_ET14[keep, ]
+expr_tpm_ET14_filter <- expr_tpm_ET14[keep, ]
+rm(keep)
+```
+
+## PCA analysis
+```{r PCA analysis}
+pca_ET14<-prcomp(t(expr_tpm_ET14_filter),scale=T)
+df_pca_ET14<-data.frame(pca_ET14$x)
+library(tidyverse)
+df_pca_ET14 <- df_pca_ET14 %>% rownames_to_column(var = "sample_id") %>% left_join(target_ET14[,c("sample_id", "group")], by="sample_id") %>% column_to_rownames(var = "sample_id")
+head(df_pca_ET14,3)
+```
+
+```{r 3D PCA plot}
+library(scatterplot3d)
+mycolors_ET14 <- ifelse(df_pca_ET14$group=="CP", colorset[1], colorset[2])
+scatterplot3d(df_pca_ET14[,1:3],
+              color = mycolors_ET14,
+              pch=17,
+              main= "",
+              grid=T, 
+              box=FALSE, 
+              type = "h")
+legend("top", legend = c("BPL", "CP"),
+      col =  colorset[c(2,1)],  pch =17, horiz=T, xpd = T, bty = "n",lwd = 1, lty = c(1,1,1))
+```
+
+## DEmiRs analysis
+```{r DESeq2 analysis, echo=FALSE}
+library(DESeq2)
+identical(colnames(expr_count_ET14_filter), target_ET14$sample_id)
+dds_ET14_adjust <- DESeqDataSetFromMatrix(countData = expr_count_ET14_filter, colData = target_ET14,design = ~ embryo_no+embryo_type+group)#adjust for the number of embryos and the type of embryos
+dds_ET14_adjust <- DESeq(dds_ET14_adjust, parallel = T) #standardization and DEG analysis
+resultsNames(dds_ET14_adjust)
+```
+
+```{r DEmiR BPL vs CP at ET14}
+library(tidyverse)
+res_BPvsCP_ET14 <- results(dds_ET14_adjust, contrast = c("group", "BP", "CP" ),cooksCutoff = F, independentFiltering = F) #BPL vs CP
+DEG_BPvsCP_ET14 <- as.data.frame(res_BPvsCP_ET14) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(pvalue < 0.05 & abs(log2FoldChange) > 1,ifelse(log2FoldChange < 0,"DOWN", "UP"), "NS"))
+# write.csv(DEG_BPvsCP_ET14, file = "Stable_DEG_ET14_BPLvsCP.csv", row.names = F)
+DEG_sig_BPvsCP_ET14 <- as.data.frame(res_BPvsCP_ET14) %>% 
+  rownames_to_column("miRNA_id") %>% 
+  dplyr::filter(abs(log2FoldChange) > 1, pvalue < 0.05) %>%
+  arrange(pvalue) %>%
+  mutate(Regulation = ifelse(log2FoldChange < 0, "DOWN", "UP"))
+
+BPL_miRs_ET14 <- DEG_sig_BPvsCP_ET14$miRNA_id
+# write.csv(BPL_miRs_ET14, file = "BPL_miRs_ET14.csv", row.names = F)
+```
+
+# BPL indicative miRNAs at ET0 and ET11
+```{r}
+BPL_indicators <- union(BPL_miRs_ET0, BPL_miRs_ET11)
+BPL_indicators
+# write.csv(BPL_indicators, file = "BPL_indicators.csv", row.names = F)
+```
+
+
+# Heatmap
+## ET0
+```{r pheatmap at ET0}
+library(pheatmap)
+library(tidyverse)
+heatmap_miRs_ET0 <- rbind(DEG_sig_BPvsCP_ET0[c(1:10),], DEG_sig_BPvsNP_ET0[c(1:10),], DEG_sig_NPvsCP_ET0[c(1:10),])
+heatmap_miRs_ET0<-heatmap_miRs_ET0[!duplicated(heatmap_miRs_ET0$miRNA_id),]
+heatmap_df_ET0<-expr_tpm_ET0_filter[heatmap_miRs_ET0$miRNA_id, ]
+
+annotation_col_ET0 <- target_ET0 %>%
+  dplyr::select(sample_id, group) %>% 
+  arrange(group) %>% 
+  column_to_rownames("sample_id")
+
+heatmap_df_ET0<-heatmap_df_ET0[,rownames(annotation_col_ET0)]
+heatmap_df_ET0 <- heatmap_df_ET0 %>% rownames_to_column(var = "miRNA_id") 
+heatmap_df_ET0$miRNA_id <- gsub(heatmap_df_ET0$miRNA_id, pattern = "hsa-", replacement = "")
+heatmap_df_ET0 <- heatmap_df_ET0 %>% column_to_rownames(var = "miRNA_id")
+```
+
+```{r}
+pdf("Heatmap_ET0.pdf", 7, 8, family = "Times")
+heatmap_ET0 <- pheatmap(heatmap_df_ET0, 
+         scale = "row",
+         color = colorRampPalette(c("navy", "white", "#F0027F"))(100),
+         border_color = NA,
+         main = "ET0", 
+         cluster_rows = F,
+         cluster_cols = F,
+         annotation_col = annotation_col_ET0,
+         annotation_colors = list(group=c(CP=colorset[1], BP=colorset[2], NP=colorset[3])),
+         annotation_legend = T,
+         # treeheight_row = 20,
+         # treeheight_col = 15,
+         fontsize = 7,
+         fontsize_row = 7,
+         show_colnames = F,
+         legend = F
+         # display_numbers = TRUE
+         )
+ggplot2::ggsave(filename = "heatmap_ET0.pdf", plot = heatmap_ET0, device = "pdf", width = 8, height = 6, units = "cm", dpi = 300, family="Times")
+```
+
+## ET11
+```{r pheatmap at ET11}
+library(pheatmap)
+library(tidyverse)
+heatmap_miRs_ET11 <- rbind(DEG_sig_BPvsCP_ET11[c(1:10),], DEG_sig_BPvsNP_ET11[c(1:10),], DEG_sig_NPvsCP_ET11[c(1:10),])
+heatmap_miRs_ET11<-heatmap_miRs_ET11[!duplicated(heatmap_miRs_ET11$miRNA_id),]
+heatmap_df_ET11<-expr_tpm_ET11_filter[heatmap_miRs_ET11$miRNA_id, ]
+annotation_col_ET11 <- target_ET11 %>%
+  dplyr::select(sample_id, group) %>% 
+  arrange(group) %>% 
+  column_to_rownames("sample_id")
+heatmap_df_ET11<-heatmap_df_ET11[ , rownames(annotation_col_ET11)]
+heatmap_df_ET11<-heatmap_df_ET11 %>% rownames_to_column(var = "miRNA_id") 
+heatmap_df_ET11$miRNA_id <- gsub(heatmap_df_ET11$miRNA_id, pattern = "hsa-", replacement = "")
+heatmap_df_ET11 <- heatmap_df_ET11 %>% column_to_rownames(var = "miRNA_id")
+```
+
+```{r}
+heatmap_ET11 <- pheatmap(heatmap_df_ET11, 
+         scale = "row",
+         color = colorRampPalette(c("navy", "white", "#F0027F"))(100),
+         border_color = NA,
+         main = "ET11", 
+         cluster_rows = F,
+         cluster_cols = F,
+         annotation_col = annotation_col_ET11,
+         annotation_colors = list(group=c(CP=colorset[1], BP=colorset[2], NP=colorset[3])),
+         annotation_legend = T,
+         # treeheight_row = 20,
+         # treeheight_col = 15,
+         fontsize = 7,
+         fontsize_row = 7,
+         show_colnames = F,
+         legend = F
+         # display_numbers = TRUE
+         )
+ggplot2::ggsave(filename = "heatmap_ET11.pdf", plot = heatmap_ET11, device = "pdf", width = 8, height = 6, units = "cm", dpi = 300, family="Times")
+```
+
+## ET14
+```{r pheatmap at ET14}
+library(pheatmap)
+library(tidyverse)
+heatmap_miRs_ET14 <- DEG_sig_BPvsCP_ET14[c(1:25),]
+heatmap_df_ET14<-expr_tpm_ET14_filter[heatmap_miRs_ET14$miRNA_id, ]
+annotation_col_ET14 <- target_ET14 %>%
+  dplyr::select(sample_id, group) %>% 
+  arrange(group) %>% 
+  column_to_rownames("sample_id")
+heatmap_df_ET14<-heatmap_df_ET14[ , rownames(annotation_col_ET14)]
+heatmap_df_ET14 <- heatmap_df_ET14 %>% rownames_to_column(var = "miRNA_id") 
+heatmap_df_ET14$miRNA_id <- gsub(heatmap_df_ET14$miRNA_id, pattern = "hsa-", replacement = "")
+heatmap_df_ET14 <- heatmap_df_ET14 %>% column_to_rownames(var = "miRNA_id")
+```
+
+```{r}
+heatmap_ET14 <- pheatmap(heatmap_df_ET14, 
+         scale = "row",
+         color = colorRampPalette(c("navy", "white", "#F0027F"))(100),
+         border_color = NA,
+         main = "ET14",
+         cluster_rows = F,
+         cluster_cols = F,
+         annotation_col = annotation_col_ET14,
+         annotation_colors = list(group=c(CP=colorset[1], BP=colorset[2])),
+         annotation_legend = T,
+         # treeheight_row = 20,
+         # treeheight_col = 15,
+         fontsize_row = 7,
+         fontsize = 7,
+         show_colnames = F,
+         legend = T
+         # display_numbers = TRUE
+         )
+ggplot2::ggsave(filename = "heatmap_ET14.pdf", plot = heatmap_ET14, device = "pdf", width = 8, height = 6, units = "cm", dpi = 300, family="Times")
+```
+
+
+# Venn plot
+## ET0
+```{r}
+library(VennDiagram)
+venn_ET0 <- venn.diagram(x=list("BPL vs CP" = DEG_sig_BPvsCP_ET0$miRNA_id, 
+                      "BPL vs NP" = DEG_sig_BPvsNP_ET0$miRNA_id),
+             filename = "VennPlot_ET0.tiff",
+             fill = colorset[c(4,5)],
+             scaled = F,
+             cex = 2.5,
+             cat.cex = 2.5,
+             main = "",
+             # main.cex = 2,
+             imagetype= "tiff",
+             margin=0.2,
+             alpha=0.5,
+             col = c(NA, NA),
+             cat.fontfamily="Times New Roman",
+             cat.dist=-0.1
+             # cat.fontface="bold"
+             )
+```
+
+## ET11
+```{r}
+venn_ET11 <- venn.diagram(x=list("BPL vs CP" = DEG_sig_BPvsCP_ET11$miRNA_id, 
+                      "BPL vs NP" = DEG_sig_BPvsNP_ET11$miRNA_id),
+             filename = "VennPlot_ET11.tiff",
+             fill = colorset[c(6,7)],
+             scaled = F,
+             cex = 2.5,
+             cat.cex = 2.5,
+             main = "",
+             # main.cex = 2,
+             imagetype= "tiff",
+             margin=0.2,
+             alpha=0.5,
+             col = c(NA, NA),
+             cat.fontfamily="Times New Roman",
+             cat.dist=-0.1
+             # cat.fontface="bold"
+             )
+```
+
+
+```{r}
+venn_BPL <- venn.diagram(x=list("ET0"=BPL_miRs_ET0, "ET11"=BPL_miRs_ET11),
+             filename = "VennPlot_BPL_indicators.tiff",
+             fill = colorset[c(1,2)],
+             scaled = F,
+             cex = 2.5,
+             cat.cex = 2.5,
+             main = "",
+             # main.cex = 2,
+             imagetype= "tiff",
+             margin=0.2,
+             alpha=0.5,
+             col = NA,
+             cat.dist=-0.1,
+             fontfamily="serif",
+             cat.pos=0,
+             # rotation.degree=180,
+             cat.fontfamily="Times New Roman",
+             # cat.fontface="bold"
+             sep.dist=0
+             )
+```
+
+# miRNA target mRNAs
+```{r}
+BPL_miRNAs <- c(BPL_miRs_ET0, BPL_miRs_ET11)
+library(readxl)
+df_targets <- read_excel("miRTarBase_MTI.xlsx")#miRTarBase_MTI.xlsx file is downloaded from miRTarBase (https://mirtarbase.cuhk.edu.cn/~miRTarBase/miRTarBase_2022/php/index.php)
+df_targets %>% group_by(miRNA) %>% summarize(count=n())
+df_targets <- df_targets %>% dplyr::select(miRNA, `Target Gene`) %>% filter(miRNA %in% BPL_miRNAs)
+genes_enri <- df_targets[!duplicated(df_targets$`Target Gene`), 2]
+BPL_mRNA <- read.csv("/Users/minizenghong/R_DataFile/miRNA_project/df_BPLindicator.csv", header = F)
+mRNAs <- intersect(BPL_mRNA$V1, genes_enri$`Target Gene`)
+```
+
+# Enrichment analysis
+```{r}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(tidyverse)
+gene.df <- bitr(genes_enri$`Target Gene`,
+                fromType = "SYMBOL",
+                toType = c("ENSEMBL", "ENTREZID"),
+                OrgDb = org.Hs.eg.db)
+gene <- gene.df$ENTREZID
+
+#GO enrichment analysis
+ego <- enrichGO(gene = gene,
+                ont = "ALL",
+                OrgDb = org.Hs.eg.db, 
+                pvalueCutoff =0.05, 
+                qvalueCutoff =0.05,
+                readable = TRUE)
+
+ego_MF <- enrichGO(gene = gene,
+                OrgDb = org.Hs.eg.db, 
+                pvalueCutoff =0.05, 
+                qvalueCutoff =0.05,
+                ont = "MF",
+                readable = TRUE)
+
+ego_BP <- enrichGO(gene = gene,
+                OrgDb = org.Hs.eg.db, 
+                pvalueCutoff =0.05, 
+                qvalueCutoff =0.05,
+                ont = "BP",
+                readable = TRUE)
+
+ego_CC <- enrichGO(gene = gene,
+                OrgDb = org.Hs.eg.db, 
+                pvalueCutoff =0.05, 
+                qvalueCutoff =0.05,
+                ont = "CC",
+                readable = TRUE)
+
+#KEGG enrichment analysis
+kk <- enrichKEGG(gene = gene, 
+                 organism = "hsa", 
+                 pvalueCutoff =0.05, 
+                 qvalueCutoff = 0.2)
+
+# save(ego,ego_BP,ego_CC,ego_MF, kk, file = "clusterProfiler_result.Rdata")
+```
+
+```{r}
+## Visulaization of enrichment analysis
+load(file = "clusterProfiler_result.Rda")
+
+pdf("GO_dotplot_BP.pdf", 7, 8, family = "Times")
+dotplot(ego_BP, showCategory = 15,color = "pvalue", font.size = 16)
+dev.off()
+
+pdf("GO_dotplot_MF.pdf", 7, 8, family = "Times")
+dotplot(ego_MF, showCategory = 15,color = "pvalue", font.size = 16)
+dev.off()
+
+pdf("GO_dotplot_CC.pdf", 7, 8, family = "Times")
+dotplot(ego_CC, showCategory = 15,color = "pvalue", font.size = 16)
+dev.off()
+
+pdf("KEGG_dotplot.pdf", 7, 8, family = "Times")
+dotplot(kk, showCategory = 15,color = "pvalue", font.size = 16)
+dev.off()
+```
+
+# Sankey diagram of miRNA-mRNA interactions
+```{r}
+library(tidyverse)
+df_Sankey <- df_targets %>% dplyr::filter(`Target Gene` %in% BPL_mRNA$V1)
+df_Sankey <- df_Sankey[!duplicated(df_Sankey),]
+names(df_Sankey) <- c("source", "target")
+nodes_Sankey <- data.frame(name=c(as.character(df_Sankey$source), as.character(df_Sankey$target)) %>% unique())
+df_Sankey$IDsource<-match(df_Sankey$source, nodes_Sankey$name)-1
+df_Sankey$IDtarget<-match(df_Sankey$target, nodes_Sankey$name)-1
+df_Sankey <- as.data.frame(df_Sankey)
+df_Sankey$value <- 1
+library(viridisLite)
+library(viridis)
+library(patchwork)
+library(hrbrthemes)
+library(circlize)
+library(networkD3)
+sankeyNetwork(Links = df_Sankey, Nodes = nodes_Sankey,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", LinkGroup = 'source',
+              sinksRight=FALSE, colourScale=JS("d3.scaleOrdinal(d3.schemeCategory20);"), nodeWidth=40, fontSize=20, nodePadding=20)
+```
+
